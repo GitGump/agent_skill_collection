@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-真实故事计划 —— 微信公众号HTML生成器
+人物故事 —— 微信公众号HTML生成器
 
-将Markdown格式的非虚构公众号文章转换为可直接复制粘贴到公众号编辑器的HTML格式。
+将Markdown格式的非虚构人物报道转换为可直接复制粘贴到公众号编辑器的HTML格式。
 内联所有样式，确保排版效果不丢失。
 
 风格：纪实人文，克制沉稳，大行间距，留白充足，无鲜艳配色。
@@ -11,7 +11,6 @@
 import os
 import sys
 import base64
-import re
 import markdown
 from bs4 import BeautifulSoup
 
@@ -37,7 +36,7 @@ def image_to_base64(image_path):
 
 def generate_wechat_html(markdown_content, output_path="article.html", images_dir=None):
     """
-    将Markdown转换为真实故事计划风格的微信公众号HTML
+    将Markdown转换为人物故事风格的微信公众号HTML
 
     Args:
         markdown_content (str): Markdown格式的文章内容
@@ -49,139 +48,80 @@ def generate_wechat_html(markdown_content, output_path="article.html", images_di
     """
     html = markdown.markdown(
         markdown_content,
-        extensions=[
-            'extra',
-            'nl2br',
-        ]
+        extensions=['extra', 'nl2br']
     )
 
     soup = BeautifulSoup(html, 'html.parser')
 
-    # 真实故事计划专属样式 —— 纪实人文风格
-    # 主色调：深灰/黑色，无鲜艳强调色，大行间距，留白充足
+    # 人物故事专属样式
     styles = {
         'h1': {
-            'font-size': '22px',
-            'font-weight': 'bold',
-            'color': '#1a1a1a',
-            'margin-top': '32px',
-            'margin-bottom': '20px',
-            'text-align': 'left',
-            'letter-spacing': '1px',
-            'line-height': '1.6',
+            'font-size': '22px', 'font-weight': 'bold', 'color': '#1a1a1a',
+            'margin-top': '32px', 'margin-bottom': '20px', 'text-align': 'left',
+            'letter-spacing': '1px', 'line-height': '1.6',
         },
         'h2': {
-            'font-size': '18px',
-            'font-weight': 'bold',
-            'color': '#1a1a1a',
-            'margin-top': '32px',
-            'margin-bottom': '16px',
-            'line-height': '1.6',
+            'font-size': '18px', 'font-weight': 'bold', 'color': '#1a1a1a',
+            'margin-top': '32px', 'margin-bottom': '16px', 'line-height': '1.6',
         },
         'h3': {
-            'font-size': '16px',
-            'font-weight': 'bold',
-            'color': '#333333',
-            'margin-top': '24px',
-            'margin-bottom': '12px',
-            'line-height': '1.6',
+            'font-size': '16px', 'font-weight': 'bold', 'color': '#333333',
+            'margin-top': '24px', 'margin-bottom': '12px', 'line-height': '1.6',
         },
         'p': {
-            'font-size': '17px',
-            'line-height': '2.0',
-            'color': '#2d2d2d',
-            'margin-bottom': '20px',
-            'text-align': 'justify',
-            'letter-spacing': '0.3px',
+            'font-size': '17px', 'line-height': '2.0', 'color': '#2d2d2d',
+            'margin-bottom': '20px', 'text-align': 'justify', 'letter-spacing': '0.3px',
         },
         'strong': {
-            'color': '#1a1a1a',
-            'font-weight': 'bold',
+            'color': '#1a1a1a', 'font-weight': 'bold',
         },
         'blockquote': {
-            'background-color': '#f8f7f5',
-            'padding': '18px 24px',
-            'margin': '24px 0',
-            'border-left': '3px solid #999999',
-            'font-style': 'normal',
-            'color': '#555555',
-            'font-size': '16px',
-            'line-height': '1.9',
+            'background-color': '#f8f7f5', 'padding': '18px 24px', 'margin': '24px 0',
+            'border-left': '3px solid #999999', 'font-style': 'normal', 'color': '#555555',
+            'font-size': '16px', 'line-height': '1.9',
         },
         'blockquote-prologue': {
-            'background-color': 'transparent',
-            'padding': '12px 0',
-            'margin': '8px 0 28px 0',
-            'border-left': 'none',
-            'font-style': 'normal',
-            'color': '#999999',
-            'font-size': '14px',
-            'line-height': '1.8',
-            'letter-spacing': '0.2px',
+            'background-color': 'transparent', 'padding': '12px 0', 'margin': '8px 0 28px 0',
+            'border-left': 'none', 'font-style': 'normal', 'color': '#999999',
+            'font-size': '14px', 'line-height': '1.8', 'letter-spacing': '0.2px',
         },
         'ul': {
-            'font-size': '17px',
-            'line-height': '2.0',
-            'margin-bottom': '20px',
-            'padding-left': '28px',
-            'color': '#2d2d2d',
+            'font-size': '17px', 'line-height': '2.0', 'margin-bottom': '20px',
+            'padding-left': '28px', 'color': '#2d2d2d',
         },
         'ol': {
-            'font-size': '17px',
-            'line-height': '2.0',
-            'margin-bottom': '20px',
-            'padding-left': '28px',
-            'color': '#2d2d2d',
+            'font-size': '17px', 'line-height': '2.0', 'margin-bottom': '20px',
+            'padding-left': '28px', 'color': '#2d2d2d',
         },
         'li': {
             'margin-bottom': '10px',
         },
         'code': {
-            'background-color': '#f5f5f4',
-            'padding': '2px 6px',
-            'border-radius': '3px',
-            'font-family': 'Consolas, Monaco, monospace',
-            'font-size': '14px',
-            'color': '#444444',
+            'background-color': '#f5f5f4', 'padding': '2px 6px', 'border-radius': '3px',
+            'font-family': 'Consolas, Monaco, monospace', 'font-size': '14px', 'color': '#444444',
         },
         'pre': {
-            'background-color': '#f5f5f4',
-            'padding': '16px',
-            'border-radius': '4px',
-            'overflow-x': 'auto',
-            'margin': '20px 0',
+            'background-color': '#f5f5f4', 'padding': '16px', 'border-radius': '4px',
+            'overflow-x': 'auto', 'margin': '20px 0',
         },
         'hr': {
-            'border': 'none',
-            'border-top': '1px solid #e8e6e3',
-            'margin': '36px 0',
+            'border': 'none', 'border-top': '1px solid #e8e6e3', 'margin': '36px 0',
         },
         'table': {
-            'width': '100%',
-            'border-collapse': 'collapse',
-            'margin': '20px 0',
+            'width': '100%', 'border-collapse': 'collapse', 'margin': '20px 0',
         },
         'th': {
-            'background-color': '#f5f5f4',
-            'padding': '10px 14px',
-            'text-align': 'left',
-            'border-bottom': '2px solid #dddddd',
-            'font-weight': 'bold',
-            'font-size': '15px',
+            'background-color': '#f5f5f4', 'padding': '10px 14px', 'text-align': 'left',
+            'border-bottom': '2px solid #dddddd', 'font-weight': 'bold', 'font-size': '15px',
             'color': '#333333',
         },
         'td': {
-            'padding': '10px 14px',
-            'border-bottom': '1px solid #ebebeb',
-            'font-size': '15px',
-            'color': '#2d2d2d',
+            'padding': '10px 14px', 'border-bottom': '1px solid #ebebeb',
+            'font-size': '15px', 'color': '#2d2d2d',
         },
         'img': {
-            'max-width': '100%',
-            'height': 'auto',
-            'display': 'block',
-            'margin': '28px auto',
-            'border-radius': '2px',
+            'max-width': '100%', 'height': 'auto', 'display': 'block',
+            'margin': '28px auto', 'border-radius': '2px',
         },
     }
 
@@ -202,35 +142,25 @@ def generate_wechat_html(markdown_content, output_path="article.html", images_di
     for tag in soup.find_all('blockquote'):
         apply_style(tag, styles['blockquote'])
 
-    # 口述引言样式：文章开头第一个 blockquote 使用浅灰小号字体
-    # 判断逻辑：第一个 blockquote 且位于 h1/h2 之后、第一个正文段落之前
+    # 口述引言样式
     first_blockquote = soup.find('blockquote')
     if first_blockquote:
-        # 检查是否为口述引言：位于标题/封面之后，正文内容之前
-        # 标记方式：如果 blockquote 的文本包含"讲述"或"整理"，视为口述引言
         prologue_keywords = ['讲述', '整理', '口述', '自述', '回忆', '采访']
         bq_text = first_blockquote.get_text()
         if any(kw in bq_text for kw in prologue_keywords):
             apply_style(first_blockquote, styles['blockquote-prologue'])
-            # 同时为口述引言内的段落设置小号浅灰样式
             for p in first_blockquote.find_all('p'):
                 p['style'] = '; '.join([
                     f'{k}: {v}' for k, v in {
-                        'font-size': '14px',
-                        'color': '#999999',
-                        'line-height': '1.8',
-                        'margin-bottom': '0',
-                        'text-align': 'left',
-                        'letter-spacing': '0.2px',
+                        'font-size': '14px', 'color': '#999999', 'line-height': '1.8',
+                        'margin-bottom': '0', 'text-align': 'left', 'letter-spacing': '0.2px',
                     }.items()
                 ])
 
-    # 隐私声明样式：文章最后一个 blockquote 使用浅灰小号字体
-    # 判断逻辑：最后一个 blockquote 且包含"化名"/"隐私"等关键词
+    # 隐私声明样式
     all_blockquotes = soup.find_all('blockquote')
     if len(all_blockquotes) > 0:
         last_blockquote = all_blockquotes[-1]
-        # 跳过口述引言（如果只有一个 blockquote 且是口述引言）
         if last_blockquote != first_blockquote:
             disclaimer_keywords = ['化名', '隐私', '保护', '匿名']
             lbq_text = last_blockquote.get_text()
@@ -239,12 +169,8 @@ def generate_wechat_html(markdown_content, output_path="article.html", images_di
                 for p in last_blockquote.find_all('p'):
                     p['style'] = '; '.join([
                         f'{k}: {v}' for k, v in {
-                            'font-size': '14px',
-                            'color': '#999999',
-                            'line-height': '1.8',
-                            'margin-bottom': '0',
-                            'text-align': 'left',
-                            'letter-spacing': '0.2px',
+                            'font-size': '14px', 'color': '#999999', 'line-height': '1.8',
+                            'margin-bottom': '0', 'text-align': 'left', 'letter-spacing': '0.2px',
                         }.items()
                     ])
 
@@ -274,17 +200,17 @@ def generate_wechat_html(markdown_content, output_path="article.html", images_di
     for img in soup.find_all('img'):
         apply_style(img, styles['img'])
 
-    # 处理图片（第一遍：外部URL）
+    # 处理图片（外部URL）
     for img in soup.find_all('img'):
         original_src = img.get('src', '')
         if original_src.startswith(('http://', 'https://')):
-            print(f"✓ 使用外部图片URL: {original_src}")
+            print(f"OK 使用外部图片URL: {original_src}")
             img['src'] = original_src
             img['_processed'] = True
         else:
             img['_processed'] = False
 
-    # 处理图片（第二遍：本地图片或占位符）
+    # 处理图片（本地图片或占位符）
     if images_dir:
         image_files = []
         if os.path.exists(images_dir):
@@ -292,37 +218,29 @@ def generate_wechat_html(markdown_content, output_path="article.html", images_di
                 if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif')):
                     image_files.append(filename)
 
-        if image_files:
-            print(f"\n找到 {len(image_files)} 张图片文件：{image_files}")
-
         for img in soup.find_all('img'):
             if img.get('_processed'):
                 continue
-
             original_src = img.get('src', '')
             alt_text = img.get('alt', '')
             image_path = None
-
             if image_files:
                 if alt_text:
                     for filename in image_files:
                         if alt_text in filename or filename.startswith(alt_text):
                             image_path = os.path.join(images_dir, filename)
                             break
-
                 if not image_path and original_src:
                     src_filename = os.path.basename(original_src)
                     for filename in image_files:
                         if src_filename in filename or filename.startswith(src_filename):
                             image_path = os.path.join(images_dir, filename)
                             break
-
                 if not image_path and ('封面' in alt_text or '封面' in original_src):
                     for filename in image_files:
                         if '封面' in filename:
                             image_path = os.path.join(images_dir, filename)
                             break
-
                 if not image_path:
                     for filename in image_files:
                         if '配图' in filename:
@@ -330,70 +248,51 @@ def generate_wechat_html(markdown_content, output_path="article.html", images_di
                             if filename in image_files:
                                 image_files.remove(filename)
                             break
-
             if image_path:
                 base64_data = image_to_base64(image_path)
                 if base64_data:
                     img['src'] = base64_data
-                    print(f"✓ 已嵌入图片: {os.path.basename(image_path)}")
+                    print(f"OK 已嵌入图片: {os.path.basename(image_path)}")
                     continue
-
-            # 未找到图片，使用克制风格的占位符
             placeholder = soup.new_tag('div')
             placeholder['style'] = (
-                'background-color: #f8f7f5; '
-                'padding: 28px 20px; '
-                'text-align: center; '
-                'border: 1px dashed #cccccc; '
-                'margin: 28px 0; '
-                'color: #888888; '
-                'font-size: 14px;'
+                'background-color: #f8f7f5; padding: 28px 20px; '
+                'text-align: center; border: 1px dashed #cccccc; '
+                'margin: 28px 0; color: #888888; font-size: 14px;'
             )
             display_text = alt_text if alt_text else (original_src if original_src else "图片")
-            if '封面' in display_text:
-                size_info = "建议尺寸：900×383像素（2.35:1比例）"
-            else:
-                size_info = "建议尺寸：900×500像素（16:9比例）"
+            size_info = "建议尺寸：900x383像素" if '封面' in display_text else "建议尺寸：900x500像素"
             placeholder.string = f'[ {display_text} | {size_info} ]'
             img.replace_with(placeholder)
-            print(f"✗ 未找到图片，使用占位符: {display_text}")
+            print(f"MISS 未找到图片，使用占位符: {display_text}")
     else:
         for img in soup.find_all('img'):
             if img.get('_processed'):
                 continue
             placeholder = soup.new_tag('div')
             placeholder['style'] = (
-                'background-color: #f8f7f5; '
-                'padding: 28px 20px; '
-                'text-align: center; '
-                'border: 1px dashed #cccccc; '
-                'margin: 28px 0; '
-                'color: #888888; '
-                'font-size: 14px;'
+                'background-color: #f8f7f5; padding: 28px 20px; '
+                'text-align: center; border: 1px dashed #cccccc; '
+                'margin: 28px 0; color: #888888; font-size: 14px;'
             )
-            original_src = img.get('src', '')
-            alt_text = img.get('alt', '')
-            display_text = alt_text if alt_text else (original_src if original_src else "图片")
-            if '封面' in display_text:
-                size_info = "建议尺寸：900×383像素（2.35:1比例）"
-            else:
-                size_info = "建议尺寸：900×500像素（16:9比例）"
+            display_text = img.get('alt', '') or img.get('src', '') or "图片"
+            size_info = "建议尺寸：900x383像素" if '封面' in display_text else "建议尺寸：900x500像素"
             placeholder.string = f'[ {display_text} | {size_info} ]'
             img.replace_with(placeholder)
             print(f"[!] 未找到图片，使用占位符: {display_text}")
 
-    # 清理 _processed 属性
+    # 清理属性
     for tag in soup.find_all(True):
         if tag.has_attr('_processed'):
             del tag['_processed']
 
-    # 生成完整HTML文档 —— 真实故事计划阅读风格
+    # 生成完整HTML
     full_html = f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>真实故事计划</title>
+    <title>人物故事</title>
     <style>
         body {{
             font-family: "Georgia", "Noto Serif SC", "宋体", serif;
@@ -406,7 +305,6 @@ def generate_wechat_html(markdown_content, output_path="article.html", images_di
         .article {{
             margin-top: 16px;
         }}
-        /* 段落首行不缩进（公众号风格） */
         p {{
             text-indent: 0;
         }}
@@ -430,10 +328,6 @@ def main():
     if len(sys.argv) < 2:
         print("使用方法：")
         print("  python generate_html.py <markdown文件路径> [输出HTML路径] [图片目录路径]")
-        print("\n示例：")
-        print("  python generate_html.py article.md")
-        print("  python generate_html.py article.md output.html")
-        print("  python generate_html.py article.md output.html ./images")
         sys.exit(1)
 
     markdown_path = sys.argv[1]
@@ -450,19 +344,7 @@ def main():
     generate_wechat_html(markdown_content, output_path, images_dir)
 
     print(f"\n[OK] HTML文件已生成：{output_path}")
-    print(f"\n发布步骤：")
-    print(f"1. 在浏览器中打开 {output_path}")
-    print(f"2. 全选内容（Ctrl+A）")
-    print(f"3. 复制（Ctrl+C）")
-    print(f"4. 粘贴到微信公众号编辑器（Ctrl+V）")
-    if images_dir:
-        print(f"5. 图片已嵌入，无需单独上传")
-    else:
-        print(f"5. 替换图片占位符或上传配图")
-
-    file_size = os.path.getsize(output_path) / (1024 * 1024)
-    if file_size > 5:
-        print(f"\n⚠️  HTML文件 {file_size:.2f}MB，建议使用外部图片URL而非本地base64")
+    print(f"发布步骤：1. 浏览器打开  2. 全选复制  3. 粘贴到公众号编辑器")
 
 
 if __name__ == '__main__':
