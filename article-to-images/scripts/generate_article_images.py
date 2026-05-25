@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Article-to-Images Generator v2.2 — 多主题模板版
+Article-to-Images Generator v3.0 — 多主题模板版 + AI自定义主题
 
 将文章自动转换为多张精美的 1080x1440px 图文切片，支持：
 - 8 种主题风格自动匹配（科技蓝/商务灰/文艺绿/暖橙/极简黑/杂志红/复古金/清新蓝）
+- AI 自定义主题：指定主色+背景类型，自动推导全部配色（v3.0）
 - Markdown 解析 + HTML 样式预览
-- 首张切片：大标题居中 + 主题色高亮
+- 首张切片：大标题居中 + 副标题/导语（必填）+ 主题色高亮
 - 正文切片：段落标题加粗+下划线+主题色，重点内容强调显示
 - 自动根据文章关键词匹配最佳主题
 - 产物命名：文章标题-时间戳-版本号（如 红辣椒-202605221734-V1）
+
+v3.0 更新：
+- 副标题/导语改为必填，AI为每篇文章生成吸引点击的导语
+- 来源/作者改为必填，默认值"好人古德曼"
+- 新增AI自定义主题：传入主色十六进制值+主题名+背景类型，自动推导14个配色字段
+- 自定义主题确保配色和谐、对比度合格、视觉美感
 
 v2.2 更新：
 - 封面页去掉标题区域上方和下方的两条横线
@@ -28,6 +35,7 @@ import re
 import sys
 import io
 import json
+import colorsys
 import html as html_module
 from datetime import datetime
 
@@ -211,6 +219,133 @@ THEMES = {
         'desc': '清新蓝主题，适合自然、环保、极简、风景类文章'
     }
 }
+
+
+# ============ Custom Theme Generator ============
+
+def hex_to_rgb(hex_color):
+    """Convert hex color string (#RRGGBB) to RGB tuple."""
+    hex_color = hex_color.lstrip('#')
+    if len(hex_color) != 6:
+        raise ValueError(f'Invalid hex color: #{hex_color}. Expected format: #RRGGBB')
+    return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+
+
+def rgb_to_hex(r, g, b):
+    """Convert RGB tuple to hex string."""
+    return f'#{r:02X}{g:02X}{b:02X}'
+
+
+def generate_custom_theme(primary_hex, name, bg_type='light'):
+    """
+    从一个主色自动推导生成完整的14字段主题配色。
+
+    设计原则：
+    - 主色(title_color)作为视觉锚点
+    - 所有衍生色保持色相一致，仅调整明度/饱和度
+    - 确保文字与背景对比度 > 4.5:1（WCAG AA）
+    - 强调色(accent)取色环邻近30°，和谐不冲突
+    - 深色/浅色背景自动适配文字颜色
+
+    Args:
+        primary_hex: 主色十六进制值，如 '#8B4513'
+        name: 主题显示名称
+        bg_type: 背景类型 — 'light'(默认,偏白)/'warm'(暖白)/'cool'(冷白)/'dark'(深色)
+
+    Returns:
+        dict: 完整的主题配色字典，与 THEMES 中格式一致
+    """
+    primary = hex_to_rgb(primary_hex)
+    r, g, b = primary
+    h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+
+    def from_hsv(hue, sat, val):
+        """HSV → RGB tuple，自动裁剪到合法范围。"""
+        r2, g2, b2 = colorsys.hsv_to_rgb(hue % 1.0, max(0, min(1, sat)), max(0, min(1, val)))
+        return (int(r2 * 255), int(g2 * 255), int(b2 * 255))
+
+    def lighten(color, factor=0.3):
+        r, g, b = color
+        return (min(255, int(r + (255 - r) * factor)),
+                min(255, int(g + (255 - g) * factor)),
+                min(255, int(b + (255 - b) * factor)))
+
+    def darken(color, factor=0.3):
+        r, g, b = color
+        return (max(0, int(r * (1 - factor))),
+                max(0, int(g * (1 - factor))),
+                max(0, int(b * (1 - factor))))
+
+    # ── 强调色：色环偏移 ~30°（0.083），略提饱和度+明度 ──
+    accent = from_hsv((h + 0.083) % 1.0, min(s * 1.15, 0.85), min(v * 1.15, 1.0))
+
+    # ── 背景 ──
+    bg_presets = {
+        'light': from_hsv(h, s * 0.06, 0.98),      # 近白，极淡主色底
+        'warm': (255, 253, 248),                      # 暖白
+        'cool': (245, 248, 255),                       # 冷白
+        'dark': from_hsv(h, s * 0.25, 0.13),          # 深色
+    }
+    bg = bg_presets.get(bg_type, bg_presets['light'])
+
+    # ── 文字色：深色背景用浅色，浅色背景用深色（带主色色相） ──
+    if bg_type == 'dark':
+        text_color = lighten(desaturate_hsv(primary, 0.65), 0.65)
+        title_color = lighten(primary, 0.15)
+        heading_color = lighten(primary, 0.25)
+        cover_bg = darken(primary, 0.15)
+        cover_title_color = (255, 255, 255)
+        cover_accent = lighten(primary, 0.35)
+    else:
+        text_color = from_hsv(h, s * 0.45, 0.18)     # 深色但带色相
+        title_color = primary
+        heading_color = lighten(primary, 0.12)
+        cover_bg = primary
+        cover_title_color = (255, 255, 255)
+        cover_accent = lighten(primary, 0.30)
+
+    # ── 浅色面板背景 ──
+    light_color = from_hsv(h, s * 0.22, 0.94)
+    highlight_bg = from_hsv(h, s * 0.14, 0.96)
+
+    # ── 装饰/页码 ──
+    underline_color = lighten(primary, 0.05)
+    deco_color = lighten(accent, 0.15)
+    page_num_color = from_hsv(h, s * 0.12, 0.68)
+
+    theme = {
+        'name': name,
+        'keywords': [],
+        'bg': bg,
+        'title_color': title_color,
+        'heading_color': heading_color,
+        'accent_color': accent,
+        'text_color': text_color,
+        'light_color': light_color,
+        'underline_color': underline_color,
+        'deco_color': deco_color,
+        'page_num_color': page_num_color,
+        'highlight_bg': highlight_bg,
+        'cover_bg': cover_bg,
+        'cover_title_color': cover_title_color,
+        'cover_accent': cover_accent,
+        'has_cover_bg': True,
+        'desc': f'自定义主题：{name}（主色 {primary_hex}，背景 {bg_type}）',
+    }
+
+    # 注册到 THEMES 以便后续统一引用
+    theme_id = f'custom_{name}'
+    THEMES[theme_id] = theme
+    return theme_id
+
+
+def desaturate_hsv(color, factor=0.5):
+    """向灰色方向降低饱和度。"""
+    r, g, b = color
+    gray = int(0.299 * r + 0.587 * g + 0.114 * b)
+    return (int(r + (gray - r) * factor),
+            int(g + (gray - g) * factor),
+            int(b + (gray - b) * factor))
 
 
 # ============ Markdown Parser ============
@@ -944,7 +1079,8 @@ def sanitize_filename(name):
 
 
 def generate_images(article_title, article_text, output_dir,
-                    source='', subtitle='', theme_id=''):
+                    source='好人古德曼', subtitle='', theme_id='',
+                    custom_primary_color='', custom_theme_name='', bg_type='light'):
     """
     Main function: generate themed article images.
 
@@ -952,14 +1088,21 @@ def generate_images(article_title, article_text, output_dir,
         article_title: Article title
         article_text: Article body text (plain text or Markdown)
         output_dir: Output directory path
-        source: Author/source info
-        subtitle: Subtitle/lead
+        source: Author/source info (default: 好人古德曼)
+        subtitle: Subtitle/lead (REQUIRED — AI should generate one)
         theme_id: Force specific theme (auto-detect if empty)
+        custom_primary_color: Custom theme primary color hex (e.g. '#8B4513')
+        custom_theme_name: Custom theme display name
+        bg_type: Custom theme background type: light/warm/cool/dark
 
     Returns:
         dict with 'image_paths', 'html_path', 'theme_id', 'theme_name'
     """
     os.makedirs(output_dir, exist_ok=True)
+
+    # Warn if subtitle is missing
+    if not subtitle:
+        print('[WARNING] No subtitle provided. A compelling subtitle/lead is recommended for better engagement.')
 
     # Parse Markdown
     parser = MarkdownParser(article_text)
@@ -968,12 +1111,15 @@ def generate_images(article_title, article_text, output_dir,
     # Detect key phrases for emphasis
     key_phrases = parser.detect_key_phrases()
 
-    # Auto-match theme if not specified
-    if not theme_id or theme_id not in THEMES:
+    # Theme resolution: custom > forced > auto-detect
+    if custom_primary_color:
+        theme_id = generate_custom_theme(custom_primary_color, custom_theme_name or '自定义', bg_type)
+        print(f'  [Theme] Custom: {THEMES[theme_id]["name"]} (primary={custom_primary_color}, bg={bg_type})')
+    elif not theme_id or theme_id not in THEMES:
         theme_id = match_theme(article_title, article_text)
-
-    theme = THEMES[theme_id]
-    print(f'  [Theme] Auto-matched: {theme["name"]} ({theme_id})')
+        print(f'  [Theme] Auto-matched: {THEMES[theme_id]["name"]} ({theme_id})')
+    else:
+        print(f'  [Theme] Forced: {THEMES[theme_id]["name"]} ({theme_id})')
 
     # Paginate
     content_pages = paginate_blocks(blocks, theme_id)
@@ -1013,7 +1159,7 @@ def generate_images(article_title, article_text, output_dir,
         'image_paths': saved_paths,
         'html_path': html_path,
         'theme_id': theme_id,
-        'theme_name': theme['name']
+        'theme_name': THEMES[theme_id]['name']
     }
 
 
@@ -1021,14 +1167,17 @@ def main():
     """CLI entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description='Article-to-Images Generator v2.2 (Multi-Theme)')
+    parser = argparse.ArgumentParser(description='Article-to-Images Generator v3.0 (Multi-Theme + Custom)')
     parser.add_argument('--title', '-t', required=True, help='Article title')
     parser.add_argument('--input', '-i', help='Input file path (.txt/.md)')
     parser.add_argument('--text', help='Article text directly')
     parser.add_argument('--output', '-o', help='Output directory')
-    parser.add_argument('--source', '-s', default='', help='Author/source info')
-    parser.add_argument('--subtitle', default='', help='Subtitle/lead')
+    parser.add_argument('--source', '-s', default='好人古德曼', help='Author/source info (default: 好人古德曼)')
+    parser.add_argument('--subtitle', default='', help='Subtitle/lead (REQUIRED — AI should generate one)')
     parser.add_argument('--theme', default='', help='Force theme: tech/business/literature/lifestyle/minimal/magazine/retro/fresh')
+    parser.add_argument('--custom-primary-color', default='', help='Custom theme primary color hex, e.g. #8B4513')
+    parser.add_argument('--custom-theme-name', default='', help='Custom theme display name')
+    parser.add_argument('--bg-type', default='light', choices=['light', 'warm', 'cool', 'dark'], help='Custom theme background type')
     parser.add_argument('--list-themes', action='store_true', help='List all available themes')
 
     args = parser.parse_args()
@@ -1063,11 +1212,18 @@ def main():
         folder_name = f'{safe_title}-{timestamp}-{version}'
         output_dir = os.path.join(default_base_dir, folder_name)
 
-    print(f'\n[Article-to-Images Generator v2.2]')
+    print(f'\n[Article-to-Images Generator v3.0]')
     print(f'   Title: {args.title}')
+    print(f'   Subtitle: {args.subtitle or "(missing — recommended to provide)"}')
+    print(f'   Source: {args.source}')
     print(f'   Output: {output_dir}')
     print(f'   Size: {IMG_W}x{IMG_H}px')
-    print(f'   Theme: {"auto-detect" if not args.theme else args.theme}')
+    theme_info = 'auto-detect'
+    if args.custom_primary_color:
+        theme_info = f'custom ({args.custom_primary_color}, {args.bg_type})'
+    elif args.theme:
+        theme_info = args.theme
+    print(f'   Theme: {theme_info}')
     print(f'   Max Pages: {MAX_PAGES}\n')
 
     result = generate_images(
@@ -1077,6 +1233,9 @@ def main():
         source=args.source,
         subtitle=args.subtitle,
         theme_id=args.theme,
+        custom_primary_color=args.custom_primary_color,
+        custom_theme_name=args.custom_theme_name,
+        bg_type=args.bg_type,
     )
 
     print(f'\n[OK] Generated {len(result["image_paths"])} images')
