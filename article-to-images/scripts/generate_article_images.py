@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Article-to-Images Generator v3.0 — 多主题模板版 + AI自定义主题
+Article-to-Images Generator v3.3 — 精炼字号版 + 随机主题
 
 将文章自动转换为多张精美的 1080x1440px 图文切片，支持：
-- 8 种主题风格自动匹配（科技蓝/商务灰/文艺绿/暖橙/极简黑/杂志红/复古金/清新蓝）
+- 8 种主题风格随机匹配 + 发散策略（避免连续重复）
 - AI 自定义主题：指定主色+背景类型，自动推导全部配色（v3.0）
 - Markdown 解析 + HTML 样式预览
-- 首张切片：大标题居中 + 副标题/导语（必填）+ 主题色高亮
+- 首张切片：全幅主题色背景 + 72px 居中标题 + 副标题/导语
 - 正文切片：段落标题加粗+下划线+主题色，重点内容强调显示
-- 自动根据文章关键词匹配最佳主题
 - 产物命名：文章标题-时间戳-版本号（如 红辣椒-202605221734-V1）
+
+v3.3 更新：
+- 字号精炼：正文 32px、H1 主标题 72px、H2 章节标题 42px、H3 小节标题 36px
+- 封面标题固定 72px 白字加粗（去自缩放），副标题 36px 自缩放，来源 30px
 
 v3.0 更新：
 - 副标题/导语改为必填，AI为每篇文章生成吸引点击的导语
 - 来源/作者改为必填，默认值"好人古德曼"
 - 新增AI自定义主题：传入主色十六进制值+主题名+背景类型，自动推导14个配色字段
-- 自定义主题确保配色和谐、对比度合格、视觉美感
 
 v2.2 更新：
 - 封面页去掉标题区域上方和下方的两条横线
@@ -35,6 +37,7 @@ import re
 import sys
 import io
 import json
+import random
 import colorsys
 import html as html_module
 from datetime import datetime
@@ -541,25 +544,67 @@ class MarkdownParser:
         return phrases
 
 
-# ============ Theme Matcher ============
+# ============ Theme Matcher (Random Divergence) ============
+
+# 主题历史文件路径
+THEME_HISTORY_FILE = r'E:\codefile\trae\mp_article\文生图\整篇转换\.theme_history.json'
+RECENT_EXCLUDE_COUNT = 4  # 排除最近 N 个主题，确保视觉多样性
+
+
+def _load_theme_history():
+    """加载主题使用历史。"""
+    try:
+        with open(THEME_HISTORY_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            return data.get('history', [])
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _save_theme_history(history):
+    """保存主题使用历史。"""
+    os.makedirs(os.path.dirname(THEME_HISTORY_FILE), exist_ok=True)
+    with open(THEME_HISTORY_FILE, 'w', encoding='utf-8') as f:
+        json.dump({'history': history, 'updated': datetime.now().isoformat()}, f, ensure_ascii=False, indent=2)
+
 
 def match_theme(title, text):
-    """根据文章标题和正文关键词自动匹配最佳主题。"""
-    combined = (title + ' ' + text)[:3000]  # 取前3000字做分析
-    scores = {}
-    for theme_id, theme in THEMES.items():
-        score = 0
-        for kw in theme['keywords']:
-            count = combined.count(kw)
-            score += count
-        scores[theme_id] = score
+    """
+    随机选择主题，并确保与最近几篇不重复。
 
-    # 选择得分最高的主题
-    best_theme = max(scores, key=scores.get)
-    if scores[best_theme] == 0:
-        best_theme = 'literature'  # 默认文艺绿
+    策略：
+    1. 获取所有内置主题 ID（排除自定义主题）
+    2. 加载最近 N 篇使用的主题历史
+    3. 优先从未使用过的主题中随机选择
+    4. 如果所有主题都在近期用过，则从全部主题中随机选择（高发散概率）
+    5. 更新历史记录
+    """
+    # 获取所有内置主题 ID
+    builtin_ids = [tid for tid in THEMES if not tid.startswith('custom_')]
 
-    return best_theme
+    if not builtin_ids:
+        return 'literature'
+
+    history = _load_theme_history()
+    recent = history[-RECENT_EXCLUDE_COUNT:] if len(history) >= RECENT_EXCLUDE_COUNT else history
+
+    # 候选：不在近期历史中的主题
+    candidates = [tid for tid in builtin_ids if tid not in recent]
+
+    if not candidates:
+        # 所有主题近期都用过 — 从全部主题中随机选择，高发散
+        candidates = builtin_ids
+
+    chosen = random.choice(candidates)
+
+    # 更新历史
+    history.append(chosen)
+    # 只保留最近 20 条记录
+    if len(history) > 20:
+        history = history[-20:]
+    _save_theme_history(history)
+
+    return chosen
 
 
 # ============ Font Utility ============
@@ -632,69 +677,75 @@ def draw_text_with_underline(draw, x, y, text, font, color, underline_color, und
 # ============ Page Generators ============
 
 def create_cover(title, theme_id, source='', subtitle=''):
-    """Generate cover page with theme styling — 大标题居中+主题色背景。"""
+    """Generate cover page with full theme-color background and centered typography.
+
+    v3.3 design:
+    - Full cover_bg fills the entire 1080x1440 canvas
+    - Title: 72px fixed, bold, white, centered
+    - Subtitle: 36px default, 28-48px range, regular weight, theme light color, auto-scaling
+    - Source: 30px fixed, regular weight, theme light color
+    """
     theme = THEMES[theme_id]
 
-    img = Image.new('RGB', (IMG_W, IMG_H), theme['bg'])
+    img = Image.new('RGB', (IMG_W, IMG_H), theme['cover_bg'])
     draw = ImageDraw.Draw(img)
 
-    if theme.get('has_cover_bg'):
-        # 主题色背景块（上2/3区域）
-        bg_height = IMG_H * 2 // 3
-        draw.rectangle([(0, 0), (IMG_W, bg_height)], fill=theme['cover_bg'])
+    # ── 标题区域：72px 固定白字加粗居中 ──
+    title_font_size = 72
+    title_font = get_font(title_font_size, bold=True)
+    title_lines = wrap_text(draw, title, title_font, IMG_W - 160)
 
-        # 标题 — 居中大字，白字
-        title_font = get_font(64, bold=True)
-        title_lines = wrap_text(draw, title, title_font, IMG_W - 160)
+    title_line_h = int(title_font_size * 1.3)
+    total_title_h = len(title_lines) * title_line_h
 
-        if len(title_lines) > 3:
-            title_font = get_font(52, bold=True)
-            title_lines = wrap_text(draw, title, title_font, IMG_W - 160)
+    # 标题垂直居中偏上（视觉重心调整）
+    title_start_y = (IMG_H - total_title_h) // 2 - 80
 
-        if len(title_lines) > 5:
-            title_font = get_font(44, bold=True)
-            title_lines = wrap_text(draw, title, title_font, IMG_W - 160)
+    for i, line in enumerate(title_lines):
+        text_w = get_text_width(draw, line, title_font)
+        text_x = (IMG_W - text_w) // 2
+        text_y = title_start_y + i * title_line_h
+        draw.text((text_x, text_y), line, fill=theme['cover_title_color'], font=title_font)
 
-        line_h = int(title_font.size * 1.5)
-        total_title_h = len(title_lines) * line_h
-        start_y = (bg_height - total_title_h) // 2
+    # ── 副标题区域：36px 默认，28-48px 不加粗，主题色浅文字，自动缩放 ──
+    if subtitle:
+        sub_font_size = 36  # 默认值
+        sub_font = get_font(sub_font_size, bold=False)
+        sub_lines = wrap_text(draw, subtitle, sub_font, IMG_W - 200)
 
-        for i, line in enumerate(title_lines):
-            text_w = get_text_width(draw, line, title_font)
-            text_x = (IMG_W - text_w) // 2
-            text_y = start_y + i * line_h
-            draw.text((text_x, text_y), line, fill=theme['cover_title_color'], font=title_font)
+        # 根据行数自动缩放（范围 28-48px）
+        if len(sub_lines) > 3:
+            sub_font_size = 28
+            sub_font = get_font(sub_font_size, bold=False)
+            sub_lines = wrap_text(draw, subtitle, sub_font, IMG_W - 180)
+        elif len(sub_lines) == 1:
+            sub_font_size = min(48, sub_font_size + 12)
+            sub_font = get_font(sub_font_size, bold=False)
+            sub_lines = wrap_text(draw, subtitle, sub_font, IMG_W - 180)
 
-        # 副标题
-        if subtitle:
-            sub_font = get_font(28)
-            sub_lines = wrap_text(draw, subtitle, sub_font, IMG_W - 200)
-            sub_y = start_y + len(title_lines) * line_h + 30
-            for sl in sub_lines:
-                sw = get_text_width(draw, sl, sub_font)
-                sx = (IMG_W - sw) // 2
-                draw.text((sx, sub_y), sl, fill=theme['cover_accent'], font=sub_font)
-                sub_y += int(sub_font.size * 1.6)
+        sub_y = title_start_y + total_title_h + 40
+        for sl in sub_lines:
+            sw = get_text_width(draw, sl, sub_font)
+            sx = (IMG_W - sw) // 2
+            draw.text((sx, sub_y), sl, fill=theme['cover_accent'], font=sub_font)
+            sub_y += int(sub_font_size * 1.4)
 
-        # 底部装饰线
-        draw.line([(100, bg_height - 60), (IMG_W - 100, bg_height - 60)],
-                  fill=theme['cover_accent'], width=2)
-
-    # 下1/3区域：来源信息（无主题标签）
-    info_y = IMG_H * 2 // 3 + 80
-
-    # 来源/作者
+    # ── 来源/作者区域：30px 不加粗，主题色浅文字 ──
     if source:
-        src_font = get_font(22)
+        src_font_size = 30
+        src_font = get_font(src_font_size, bold=False)
         src_text = source
         src_w = get_text_width(draw, src_text, src_font)
-        draw.text(((IMG_W - src_w) // 2, info_y + 60), src_text,
-                  fill=theme['page_num_color'], font=src_font)
 
-    # 页码 "1"
-    page_font = get_font(18)
-    draw.text((IMG_W - 60, IMG_H - 60), '1',
-              fill=theme['page_num_color'], font=page_font)
+        src_x = (IMG_W - src_w) // 2
+        src_y = IMG_H - 120
+        draw.text((src_x, src_y), src_text,
+                  fill=theme['cover_accent'], font=src_font)
+
+    # ── 页码 "1" ──
+    page_font = get_font(20)
+    draw.text((IMG_W - 70, IMG_H - 55), '1',
+              fill=theme['cover_accent'], font=page_font)
 
     return img
 
@@ -721,27 +772,29 @@ def create_content_page(blocks, page_num, total_pages, theme_id, is_first_conten
     MARGIN_BOTTOM = 80
     content_width = IMG_W - MARGIN_LEFT - MARGIN_RIGHT
 
-    # Fonts
-    body_font = get_font(30)
-    body_bold_font = get_font(30, bold=True)
-    h2_font = get_font(40, bold=True)
-    h3_font = get_font(34, bold=True)
-    quote_font = get_font(28)
-    quote_bold_font = get_font(28, bold=True)
-    list_font = get_font(28)
+    # Fonts (v3.3: refined sizes)
+    body_font = get_font(32)
+    body_bold_font = get_font(32, bold=True)
+    h1_font = get_font(72, bold=True)    # # heading (H1) = 72px
+    h2_font = get_font(42, bold=True)    # ## heading (H2) = 42px
+    h3_font = get_font(36, bold=True)    # ### heading (H3) = 36px
+    quote_font = get_font(32)
+    quote_bold_font = get_font(32, bold=True)
+    list_font = get_font(32)
 
-    body_line_h = int(30 * 1.5)
-    h2_line_h = int(40 * 1.4)
-    h3_line_h = int(34 * 1.4)
-    quote_line_h = int(28 * 1.5)
-    list_line_h = int(28 * 1.5)
+    body_line_h = int(32 * 1.5)
+    h1_line_h = int(72 * 1.3)
+    h2_line_h = int(42 * 1.3)
+    h3_line_h = int(36 * 1.3)
+    quote_line_h = int(32 * 1.5)
+    list_line_h = int(32 * 1.5)
 
     current_y = MARGIN_TOP
 
     # Opening quote mark for first content page
     if is_first_content:
-        quote_mark_font = get_font(72, bold=True)
-        draw.text((MARGIN_LEFT - 15, current_y - 25), '\u201c',
+        quote_mark_font = get_font(96, bold=True)
+        draw.text((MARGIN_LEFT - 20, current_y - 35), '\u201c',
                   fill=theme['accent_color'], font=quote_mark_font)
         current_y += 50
 
@@ -754,15 +807,17 @@ def create_content_page(blocks, page_num, total_pages, theme_id, is_first_conten
         if block_type == 'heading':
             level = block.get('level', 2)
             if level == 1:
-                # H1 in content — treated like H2 with theme color
-                font = h2_font
-                line_h = h2_line_h
+                # H1 — main section heading (72px)
+                font = h1_font
+                line_h = h1_line_h
                 color = theme['heading_color']
             elif level == 2:
+                # H2 — chapter heading (42px)
                 font = h2_font
                 line_h = h2_line_h
                 color = theme['heading_color']
             else:
+                # H3+ — subsection heading (36px)
                 font = h3_font
                 line_h = h3_line_h
                 color = theme['heading_color']
@@ -844,8 +899,8 @@ def create_content_page(blocks, page_num, total_pages, theme_id, is_first_conten
 
         elif block_type == 'code':
             # Code block — light background
-            code_font = get_font(24)
-            code_line_h = int(24 * 1.4)
+            code_font = get_font(28)
+            code_line_h = int(28 * 1.4)
             code_lines = content.split('\n')
             # Background
             code_h = len(code_lines) * code_line_h + 20
@@ -890,17 +945,18 @@ def paginate_blocks(blocks, theme_id):
     MARGIN_TOP = 60
     MARGIN_BOTTOM = 80
     content_width = IMG_W - MARGIN_LEFT - MARGIN_RIGHT
-    max_text_height = IMG_H - MARGIN_TOP - 80 - 30  # bottom line moved to IMG_H-70, page num at IMG_H-50
+    max_text_height = IMG_H - MARGIN_TOP - 80 - 40  # bottom line at IMG_H-70, page num at IMG_H-50, padding
 
     # Temp image for text measurement
     temp_img = Image.new('RGB', (1, 1))
     temp_draw = ImageDraw.Draw(temp_img)
 
-    body_font = get_font(30)
-    h2_font = get_font(40, bold=True)
-    h3_font = get_font(34, bold=True)
-    quote_font = get_font(28)
-    list_font = get_font(28)
+    body_font = get_font(32)
+    h1_font = get_font(72, bold=True)
+    h2_font = get_font(42, bold=True)
+    h3_font = get_font(36, bold=True)
+    quote_font = get_font(32)
+    list_font = get_font(32)
 
     def estimate_block_height(block):
         """Estimate pixel height of a block."""
@@ -909,7 +965,12 @@ def paginate_blocks(blocks, theme_id):
 
         if btype == 'heading':
             level = block.get('level', 2)
-            font = h2_font if level <= 2 else h3_font
+            if level == 1:
+                font = h1_font
+            elif level == 2:
+                font = h2_font
+            else:
+                font = h3_font
             line_h = int(font.size * 1.4)
             lines = wrap_text(temp_draw, content, font, content_width)
             return len(lines) * line_h + 45  # Extra space after heading
@@ -938,9 +999,9 @@ def paginate_blocks(blocks, theme_id):
             return 40
 
         elif btype == 'code':
-            code_font = get_font(24)
+            code_font = get_font(28)
             code_lines = content.split('\n')
-            return len(code_lines) * int(24 * 1.4) + 20
+            return len(code_lines) * int(28 * 1.4) + 20
 
         return 0
 
@@ -1004,34 +1065,36 @@ def generate_html_preview(title, blocks, theme_id, source='', subtitle=''):
         '* { margin: 0; padding: 0; box-sizing: border-box; }',
         f'body {{ font-family: "Microsoft YaHei", "PingFang SC", sans-serif; background: {rgb_str(bg)}; color: {rgb_str(txtc)}; }}',
         f'.container {{ width: 1080px; margin: 0 auto; }}',
-        f'.cover {{ width: 1080px; height: 1440px; background: {rgb_str(theme["cover_bg"])}; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 60px; box-sizing: border-box; }}',
-        f'.cover h1 {{ font-size: 72px; font-weight: 900; color: {rgb_str(theme["cover_title_color"])}; text-align: center; line-height: 1.3; margin-bottom: 30px; }}',
-        f'.cover .deco-line {{ width: 160px; height: 3px; background: {rgb_str(theme["cover_accent"])}; margin: 20px auto; }}',
-        f'.cover .subtitle {{ font-size: 28px; color: {rgb_str(theme["cover_accent"])}; text-align: center; }}',
+        f'.cover {{ width: 1080px; height: 1440px; background: {rgb_str(theme["cover_bg"])}; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 80px 60px; box-sizing: border-box; }}',
+        f'.cover h1 {{ font-size: 72px; font-weight: 900; color: {rgb_str(theme["cover_title_color"])}; text-align: center; line-height: 1.25; margin-bottom: 40px; }}',
+        f'.cover .subtitle {{ font-size: 36px; font-weight: 400; color: {rgb_str(theme["cover_accent"])}; text-align: center; line-height: 1.35; margin-bottom: 20px; }}',
+        f'.cover .source {{ font-size: 30px; font-weight: 400; color: {rgb_str(theme["cover_accent"])}; text-align: center; margin-top: auto; padding-bottom: 60px; }}',
         f'.slice {{ width: 1080px; min-height: 1440px; padding: 60px; box-sizing: border-box; page-break-after: always; }}',
-        f'h2 {{ font-size: 40px; font-weight: 800; color: {rgb_str(hc)}; border-bottom: 3px solid {rgb_str(ulc)}; padding-bottom: 10px; margin: 30px 0 20px 0; }}',
-        f'h3 {{ font-size: 34px; font-weight: 700; color: {rgb_str(hc)}; border-bottom: 2px solid {rgb_str(ulc)}; padding-bottom: 8px; margin: 25px 0 15px 0; }}',
-        f'p {{ font-size: 30px; line-height: 1.8; margin-bottom: 20px; color: {rgb_str(txtc)}; }}',
-        f'p.key {{ font-weight: 700; color: {rgb_str(tc)}; background: {rgb_str(lc)}; padding: 12px 16px; border-radius: 8px; }}',
-        f'blockquote {{ font-size: 28px; font-weight: 600; color: {rgb_str(ac)}; border-left: 6px solid {rgb_str(ac)}; padding: 15px 20px; margin: 25px 0; background: {rgb_str(lc)}; border-radius: 0 8px 8px 0; }}',
-        f'ul {{ font-size: 28px; line-height: 1.8; margin: 15px 0; padding-left: 30px; }}',
-        f'li {{ margin-bottom: 8px; }}',
+        f'h1 {{ font-size: 72px; font-weight: 800; color: {rgb_str(hc)}; border-bottom: 5px solid {rgb_str(ulc)}; padding-bottom: 12px; margin: 40px 0 25px 0; }}',
+        f'h2 {{ font-size: 42px; font-weight: 800; color: {rgb_str(hc)}; border-bottom: 4px solid {rgb_str(ulc)}; padding-bottom: 12px; margin: 40px 0 25px 0; }}',
+        f'h3 {{ font-size: 36px; font-weight: 700; color: {rgb_str(hc)}; border-bottom: 3px solid {rgb_str(ulc)}; padding-bottom: 10px; margin: 35px 0 20px 0; }}',
+        f'p {{ font-size: 32px; line-height: 1.8; margin-bottom: 25px; color: {rgb_str(txtc)}; }}',
+        f'p.key {{ font-weight: 700; color: {rgb_str(tc)}; background: {rgb_str(lc)}; padding: 15px 20px; border-radius: 10px; }}',
+        f'blockquote {{ font-size: 32px; font-weight: 600; color: {rgb_str(ac)}; border-left: 8px solid {rgb_str(ac)}; padding: 18px 25px; margin: 30px 0; background: {rgb_str(lc)}; border-radius: 0 10px 10px 0; }}',
+        f'ul {{ font-size: 32px; line-height: 1.8; margin: 20px 0; padding-left: 35px; }}',
+        f'li {{ margin-bottom: 10px; }}',
         f'li::marker {{ color: {rgb_str(ac)}; }}',
-        f'code {{ font-size: 24px; background: {rgb_str(lc)}; padding: 15px; display: block; border-radius: 8px; margin: 15px 0; font-family: "Consolas", "Menlo", monospace; color: {rgb_str(hc)}; }}',
-        f'hr {{ border: none; height: 2px; background: {rgb_str(theme["deco_color"])}; margin: 30px 100px; }}',
-        f'.page-num {{ text-align: right; font-size: 18px; color: {rgb_str(theme["page_num_color"])}; margin-top: 20px; }}',
+        f'code {{ font-size: 28px; background: {rgb_str(lc)}; padding: 18px; display: block; border-radius: 10px; margin: 20px 0; font-family: "Consolas", "Menlo", monospace; color: {rgb_str(hc)}; }}',
+        f'hr {{ border: none; height: 2px; background: {rgb_str(theme["deco_color"])}; margin: 35px 100px; }}',
+        f'.page-num {{ text-align: right; font-size: 20px; color: {rgb_str(theme["page_num_color"])}; margin-top: 25px; }}',
         '</style>',
         '</head>',
         '<body>',
         '<div class="container">',
     ]
 
-    # Cover
+    # Cover (v3.2: full cover_bg, no decorative line, source included)
     html_parts.append('<div class="cover">')
     html_parts.append(f'<h1>{html_module.escape(title)}</h1>')
-    html_parts.append('<div class="deco-line"></div>')
     if subtitle:
         html_parts.append(f'<div class="subtitle">{html_module.escape(subtitle)}</div>')
+    if source:
+        html_parts.append(f'<div class="source">{html_module.escape(source)}</div>')
     html_parts.append('</div>')
 
     # Content blocks
@@ -1117,7 +1180,7 @@ def generate_images(article_title, article_text, output_dir,
         print(f'  [Theme] Custom: {THEMES[theme_id]["name"]} (primary={custom_primary_color}, bg={bg_type})')
     elif not theme_id or theme_id not in THEMES:
         theme_id = match_theme(article_title, article_text)
-        print(f'  [Theme] Auto-matched: {THEMES[theme_id]["name"]} ({theme_id})')
+        print(f'  [Theme] Random-pick (divergent): {THEMES[theme_id]["name"]} ({theme_id})')
     else:
         print(f'  [Theme] Forced: {THEMES[theme_id]["name"]} ({theme_id})')
 
@@ -1167,8 +1230,8 @@ def main():
     """CLI entry point."""
     import argparse
 
-    parser = argparse.ArgumentParser(description='Article-to-Images Generator v3.0 (Multi-Theme + Custom)')
-    parser.add_argument('--title', '-t', required=True, help='Article title')
+    parser = argparse.ArgumentParser(description='Article-to-Images Generator v3.3 (Refined Typography + Random Theme)')
+    parser.add_argument('--title', '-t', help='Article title')
     parser.add_argument('--input', '-i', help='Input file path (.txt/.md)')
     parser.add_argument('--text', help='Article text directly')
     parser.add_argument('--output', '-o', help='Output directory')
@@ -1186,10 +1249,15 @@ def main():
         print('\nAvailable Themes:')
         print('-' * 60)
         for tid, t in THEMES.items():
-            print(f'  {tid:15s} {t["name"]:8s} | {t["desc"]}')
-            print(f'  {"":15s} {"":8s} | Keywords: {", ".join(t["keywords"][:8])}...')
+            if not tid.startswith('custom_'):
+                print(f'  {tid:15s} {t["name"]:8s} | {t["desc"]}')
+                print(f'  {"":15s} {"":8s} | Keywords: {", ".join(t["keywords"][:8])}...')
         print()
         return
+
+    if not args.title:
+        print('[ERROR] --title/-t is required (except with --list-themes)')
+        sys.exit(1)
 
     article_text = args.text or ''
     if args.input:
@@ -1212,7 +1280,7 @@ def main():
         folder_name = f'{safe_title}-{timestamp}-{version}'
         output_dir = os.path.join(default_base_dir, folder_name)
 
-    print(f'\n[Article-to-Images Generator v3.0]')
+    print(f'\n[Article-to-Images Generator v3.3]')
     print(f'   Title: {args.title}')
     print(f'   Subtitle: {args.subtitle or "(missing — recommended to provide)"}')
     print(f'   Source: {args.source}')
